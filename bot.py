@@ -3,72 +3,109 @@ import random
 import time
 import sqlite3
 import os
+import logging
 from telebot.types import ReplyKeyboardMarkup
+
+# ===================== LOGGING =====================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # ===================== CONFIG =====================
 
-TOKEN = os.getenv("AAED9A0I-CQmxvOkPndQRbApG-oU_fByQlc")
-MAIN_ID = 5900695251
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    logger.error("❌ TELEGRAM_BOT_TOKEN متغير البيئة غير محدد")
+    exit(1)
+
+MAIN_ID = int(os.getenv("MAIN_ID", 5900695251))
 
 bot = telebot.TeleBot(TOKEN)
 
 # ===================== DATABASE =====================
 
-conn = sqlite3.connect("eva.db", check_same_thread=False)
-cursor = conn.cursor()
+def init_database():
+    """تهيئة قاعدة البيانات"""
+    try:
+        conn = sqlite3.connect("eva.db", check_same_thread=False)
+        cursor = conn.cursor()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT,
-    first_name TEXT,
-    balance INTEGER DEFAULT 0,
-    rank TEXT DEFAULT 'member'
-)
-""")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            balance INTEGER DEFAULT 0,
+            rank TEXT DEFAULT 'member'
+        )
+        """)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS replies (
-    word TEXT,
-    reply TEXT
-)
-""")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS replies (
+            word TEXT,
+            reply TEXT
+        )
+        """)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS whispers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sender INTEGER,
-    receiver INTEGER,
-    chat_id INTEGER,
-    msg TEXT,
-    seen INTEGER DEFAULT 0
-)
-""")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS whispers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender INTEGER,
+            receiver INTEGER,
+            chat_id INTEGER,
+            msg TEXT,
+            seen INTEGER DEFAULT 0
+        )
+        """)
 
-conn.commit()
+        conn.commit()
+        logger.info("✅ قاعدة البيانات تم تهيئتها بنجاح")
+        return conn, cursor
+    except sqlite3.Error as e:
+        logger.error(f"❌ خطأ في قاعدة البيانات: {e}")
+        raise
+
+conn, cursor = init_database()
 
 # ===================== SYSTEM =====================
 
 def add_user(user):
-    cursor.execute("""
-    INSERT OR IGNORE INTO users (user_id, username, first_name)
-    VALUES (?, ?, ?)
-    """, (user.id, user.username, user.first_name))
-    conn.commit()
+    try:
+        cursor.execute("""
+        INSERT OR IGNORE INTO users (user_id, username, first_name)
+        VALUES (?, ?, ?)
+        """, (user.id, user.username, user.first_name))
+        conn.commit()
+    except sqlite3.Error as e:
+        logger.error(f"❌ خطأ في إضافة المستخدم: {e}")
 
 def get_balance(uid):
-    cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
-    r = cursor.fetchone()
-    return r[0] if r else 0
+    try:
+        cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
+        r = cursor.fetchone()
+        return r[0] if r else 0
+    except sqlite3.Error as e:
+        logger.error(f"❌ خطأ في الحصول على الرصيد: {e}")
+        return 0
 
 def add_balance(uid, amount):
-    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
-    conn.commit()
+    try:
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
+        conn.commit()
+    except sqlite3.Error as e:
+        logger.error(f"❌ خطأ في إضافة الرصيد: {e}")
 
 def get_rank(uid):
-    cursor.execute("SELECT rank FROM users WHERE user_id=?", (uid,))
-    r = cursor.fetchone()
-    return r[0] if r else "member"
+    try:
+        cursor.execute("SELECT rank FROM users WHERE user_id=?", (uid,))
+        r = cursor.fetchone()
+        return r[0] if r else "member"
+    except sqlite3.Error as e:
+        logger.error(f"❌ خطأ في الحصول على الرتبة: {e}")
+        return "member"
 
 # ===================== BUTTONS =====================
 
@@ -129,7 +166,7 @@ def salary(message):
 
 @bot.message_handler(func=lambda m: m.text == "حظ")
 def luck(message):
-    bot.reply_to(message, f"🍀 {random.randint(1,100)}%")
+    bot.reply_to(message, f"🍀 {random.randint(1, 100)}%")
 
 @bot.message_handler(func=lambda m: m.text == "لف")
 def spin(message):
@@ -169,19 +206,32 @@ def rank(message):
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("همسه"))
 def whisper(message):
-
     try:
         parts = message.text.split("|")
-        msg = parts[2]
+        
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ الصيغة الصحيحة: همسه | @user | الرسالة")
+            return
+
+        msg = parts[2].strip()
+        
+        if not msg:
+            bot.reply_to(message, "❌ الرسالة لا يمكن أن تكون فارغة")
+            return
 
         if message.reply_to_message:
             receiver = message.reply_to_message.from_user.id
         else:
-            username = parts[1].replace("@", "")
+            username = parts[1].strip().replace("@", "")
+            
+            if not username:
+                bot.reply_to(message, "❌ اسم المستخدم لا يمكن أن يكون فارغاً")
+                return
+            
             cursor.execute("SELECT user_id FROM users WHERE username=?", (username,))
             r = cursor.fetchone()
             if not r:
-                bot.reply_to(message, "الشخص غير موجود")
+                bot.reply_to(message, "❌ الشخص غير موجود")
                 return
             receiver = r[0]
 
@@ -193,163 +243,206 @@ def whisper(message):
         conn.commit()
 
         bot.reply_to(message, "🤫 تم إرسال الهمسة")
-
         bot.send_message(receiver, "📩 عندك همسة جديدة اكتب (همساتي)")
+        logger.info(f"✅ همسة من {message.from_user.id} إلى {receiver}")
 
-    except:
-        bot.reply_to(message, "همسه | @user | الرسالة")
+    except ValueError as e:
+        logger.error(f"❌ خطأ في معالجة الهمسة: {e}")
+        bot.reply_to(message, "❌ الصيغة الصحيحة: همسه | @user | الرسالة")
+    except Exception as e:
+        logger.error(f"❌ خطأ غير متوقع في الهمسة: {e}")
+        bot.reply_to(message, "❌ حدث خطأ، يرجى المحاولة لاحقاً")
 
 @bot.message_handler(func=lambda m: m.text == "همساتي")
 def my_whispers(message):
+    try:
+        cursor.execute("""
+            SELECT sender, msg FROM whispers
+            WHERE receiver=? AND seen=0
+        """, (message.from_user.id,))
 
-    cursor.execute("""
-        SELECT sender, msg FROM whispers
-        WHERE receiver=? AND seen=0
-    """, (message.from_user.id,))
+        rows = cursor.fetchall()
 
-    rows = cursor.fetchall()
+        if not rows:
+            bot.reply_to(message, "📭 ما عندك همسات")
+            return
 
-    if not rows:
-        bot.reply_to(message, "📭 ما عندك همسات")
-        return
+        text = "📩 همساتك:\n\n"
 
-    text = "📩 همساتك:\n\n"
+        for r in rows:
+            text += f"👤 {r[0]}: {r[1]}\n"
 
-    for r in rows:
-        text += f"👤 {r[0]}: {r[1]}\n"
+        cursor.execute("""
+            UPDATE whispers SET seen=1 WHERE receiver=?
+        """, (message.from_user.id,))
 
-    cursor.execute("""
-        UPDATE whispers SET seen=1 WHERE receiver=?
-    """, (message.from_user.id,))
+        conn.commit()
 
-    conn.commit()
-
-    bot.reply_to(message, text)
+        bot.reply_to(message, text)
+    except sqlite3.Error as e:
+        logger.error(f"❌ خطأ في قراءة الهمسات: {e}")
+        bot.reply_to(message, "❌ حدث خطأ، يرجى المحاولة لاحقاً")
 
 # ===================== AUTO REPLY =====================
 
-@bot.message_handler(func=lambda m: m.text and not m.text.startswith("/"))
+@bot.message_handler(func=lambda m: m.text and not m.text.startswith(("/", "اضف", "همس")))
 def auto_reply(message):
+    try:
+        cursor.execute("SELECT reply FROM replies WHERE word=?", (message.text,))
+        rows = cursor.fetchall()
 
-    cursor.execute("SELECT reply FROM replies WHERE word=?", (message.text,))
-    rows = cursor.fetchall()
+        if rows:
+            bot.reply_to(message, random.choice(rows)[0])
+    except Exception as e:
+        logger.error(f"❌ خطأ في الرد التلقائي: {e}")
 
-    if rows:
-        bot.reply_to(message, 
-random.choice(rows)[0])
 # ===================== ADD SINGLE REPLY =====================
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("اضف رد |"))
 def add_reply(message):
-
     if message.from_user.id != MAIN_ID:
+        bot.reply_to(message, "❌ ليس لديك صلاحية")
         return
 
     try:
+        parts = message.text.split("|")
+        
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ الصيغة الصحيحة: اضف رد | الكلمة | الرد")
+            return
 
-        _, word, reply = message.text.split("|")
+        word = parts[1].strip()
+        reply = parts[2].strip()
+        
+        if not word or not reply:
+            bot.reply_to(message, "❌ الكلمة والرد لا يمكن أن تكونا فارغتين")
+            return
 
         cursor.execute(
             "INSERT INTO replies VALUES (?,?)",
-            (word.strip(), reply.strip())
+            (word, reply)
         )
 
         conn.commit()
 
         bot.reply_to(message, "✅ تمت إضافة الرد")
+        logger.info(f"✅ تم إضافة رد جديد: {word}")
 
-    except:
-
-        bot.reply_to(
-            message,
-            "اضف رد | الكلمة | الرد"
-        )
+    except Exception as e:
+        logger.error(f"❌ خطأ في إضافة الرد: {e}")
+        bot.reply_to(message, "❌ الصيغة الصحيحة: اضف رد | الكلمة | الرد")
 
 # ===================== ADD MULTI REPLIES =====================
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("اضف ردود متعددة"))
 def add_multi_reply(message):
-
     if message.from_user.id != MAIN_ID:
+        bot.reply_to(message, "❌ ليس لديك صلاحية")
         return
 
     try:
+        parts = message.text.split("|")
+        
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ الصيغة الصحيحة: اضف ردود متعددة | الكلمة | رد1,رد2,رد3")
+            return
 
-        _, word, replies = message.text.split("|")
+        word = parts[1].strip()
+        replies = parts[2].strip()
+        
+        if not word or not replies:
+            bot.reply_to(message, "❌ الكلمة والردود لا يمكن أن تكون فارغة")
+            return
 
         for r in replies.split(","):
-
-            cursor.execute(
-                "INSERT INTO replies VALUES (?,?)",
-                (word.strip(), r.strip())
-            )
+            reply_text = r.strip()
+            if reply_text:
+                cursor.execute(
+                    "INSERT INTO replies VALUES (?,?)",
+                    (word, reply_text)
+                )
 
         conn.commit()
 
         bot.reply_to(message, "✅ تمت إضافة الردود المتعددة")
+        logger.info(f"✅ تم إضافة ردود متعددة للكلمة: {word}")
 
-    except:
-
-        bot.reply_to(
-            message,
-            "اضف ردود متعددة | الكلمة | رد1,رد2,رد3"
-        )
+    except Exception as e:
+        logger.error(f"❌ خطأ في إضافة الردود المتعددة: {e}")
+        bot.reply_to(message, "❌ الصيغة الصحيحة: اضف ردود متعددة | الكلمة | رد1,رد2,رد3")
 
 # ===================== LIST REPLIES =====================
 
 @bot.message_handler(func=lambda m: m.text == "قائمه الردود")
 def list_replies(message):
-
     if message.from_user.id != MAIN_ID:
+        bot.reply_to(message, "❌ ليس لديك صلاحية")
         return
 
-    cursor.execute("SELECT word, reply FROM replies")
+    try:
+        cursor.execute("SELECT word, reply FROM replies")
 
-    rows = cursor.fetchall()
+        rows = cursor.fetchall()
 
-    if not rows:
+        if not rows:
+            bot.reply_to(message, "❌ لا توجد ردود")
+            return
 
-        bot.reply_to(message, "❌ لا توجد ردود")
-        return
+        text = "📜 قائمة الردود:\n\n"
 
-    text = "📜 قائمة الردود:\n\n"
+        for r in rows:
+            text += f"• {r[0]} ← {r[1]}\n"
 
-    for r in rows:
-
-        text += f"• {r[0]} ← {r[1]}\n"
-
-    bot.reply_to(message, text)
+        bot.reply_to(message, text)
+    except Exception as e:
+        logger.error(f"❌ خطأ في عرض الردود: {e}")
+        bot.reply_to(message, "❌ حدث خطأ، يرجى المحاولة لاحقاً")
 
 # ===================== ID =====================
 
 @bot.message_handler(func=lambda m: m.text == "ايدي")
 def myid(message):
+    try:
+        user = message.from_user
 
-    user = message.from_user
-
-    text = f"""
+        text = f"""
 🆔 ايديك: {user.id}
 👤 اسمك: {user.first_name}
 📛 يوزرك: @{user.username if user.username else 'لا يوجد'}
 """
 
-    photos = bot.get_user_profile_photos(user.id)
+        photos = bot.get_user_profile_photos(user.id)
 
-    if photos.total_count > 0:
+        if photos.total_count > 0:
+            file_id = photos.photos[0][-1].file_id
 
-        file_id = photos.photos[0][-1].file_id
-
-        bot.send_photo(
-            message.chat.id,
-            file_id,
-            caption=text
-        )
-
-    else:
-
-        bot.reply_to(message, text)
+            bot.send_photo(
+                message.chat.id,
+                file_id,
+                caption=text
+            )
+        else:
+            bot.reply_to(message, text)
+    except Exception as e:
+        logger.error(f"❌ خطأ في عرض بيانات المستخدم: {e}")
+        bot.reply_to(message, "❌ حدث خطأ، يرجى المحاولة لاحقاً")
 
 # ===================== RUN =====================
 
-print("EVA BOT FINAL CLEAN RUNNING 🔥")
-bot.infinity_polling(skip_pending=True)
+@bot.message_handler(func=lambda m: True)
+def handle_unknown(message):
+    """معالج الرسائل غير المعروفة"""
+    pass
+
+if __name__ == "__main__":
+    logger.info("🚀 EVA BOT يبدأ التشغيل...")
+    try:
+        bot.infinity_polling(skip_pending=True)
+    except KeyboardInterrupt:
+        logger.info("⏹️ البوت تم إيقافه")
+    except Exception as e:
+        logger.error(f"❌ خطأ غير متوقع: {e}")
+    finally:
+        if conn:
+            conn.close()
+            logger.info("✅ تم إغلاق قاعدة البيانات")
