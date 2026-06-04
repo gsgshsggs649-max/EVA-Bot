@@ -1,0 +1,38 @@
+Snapshot: EVA-Bot repository state
+Date: 2026-06-04T21:50:14Z (UTC)
+
+Files at root (ref: main):
+- bot.py -> https://github.com/gsgshsggs649-max/EVA-Bot/blob/main/bot.py
+  blob SHA: 63be08d1000f6bde79c974f3d25897186c6df42b
+- handlers.py -> https://github.com/gsgshsggs649-max/EVA-Bot/blob/main/handlers.py
+  blob SHA: dfa76d0f85ba258dbfb3257633f5794c38b4caf7
+- requirements.txt -> https://github.com/gsgshsggs649-max/EVA-Bot/blob/main/requirements.txt
+  blob SHA: ed333db45f99993866467c518b0ea871cf122806
+- backups/ (folder) -> https://github.com/gsgshsggs649-max/EVA-Bot/tree/main/backups
+  contains: backups/bot_688f126b.py, backups/bot_6a5fedda.py
+
+Recent commits (touching bot.py and snapshots):
+- 85777f3ca9f0f3df0f9b65e6751a2c50865d83eb — Save previous bot.py versions and add requirements.txt
+  URL: https://github.com/gsgshsggs649-max/EVA-Bot/commit/85777f3ca9f0f3df0f9b65e6751a2c50865d83eb
+- 640b4e0dd7a99d443438aa614deb3ef9037b6cc7 — Improve song search: thumbnail + top 3 results + waiting message
+  URL: https://github.com/gsgshsggs649-max/EVA-Bot/commit/640b4e0dd7a99d443438aa614deb3ef9037b6cc7
+- 6a5fedda4b6da47967ca8c0425cc6751fa2b6b5f — Add YouTube song search handler (اغنيه)
+  URL: https://github.com/gsgshsggs649-max/EVA-Bot/commit/6a5fedda4b6da47967ca8c0425cc6751fa2b6b5f
+
+Notes and recommendations:
+- A backup of previous bot.py versions is already stored in backups/.
+- The current bot.py contains the marriages feature and hidden whisper UI, plus the YouTube search handler.
+- The whispers are stored in-memory (whispers dict). If you want persistence, migrate whispers to a DB table.
+- To run locally or on a server:
+  1) git clone https://github.com/gsgshsggs649-max/EVA-Bot.git
+  2) python -m venv venv && source venv/bin/activate
+  3) pip install -r requirements.txt
+  4) export TELEGRAM_BOT_TOKEN=your_token_here
+  5) python bot.py
+
+If you want, I can also:
+- create a Git tag/release for this snapshot,
+- migrate whispers to the DB,
+- add a systemd unit file to run the bot as a service.
+
+Saved-by: Copilot (assistant)
