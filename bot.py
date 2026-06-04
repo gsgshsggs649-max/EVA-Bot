@@ -174,40 +174,63 @@ def start(message):
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("اغنيه "))
 def song_search(message):
-
     try:
-        query = message.text.replace("اغنيه ", "")
+        query = message.text.replace("اغنيه ", "").strip()
 
         if not query:
             bot.reply_to(message, "❌ اكتب اسم الاغنية")
             return
 
-        search = VideosSearch(query, limit=1)
-        result = search.result()["result"][0]
+        # رسالة انتظار لتحسين تجربة المستخدم
+        waiting = bot.reply_to(message, "⏳ جارٍ البحث...")
 
-        title = result["title"]
-        link = result["link"]
-        duration = result["duration"]
-        channel = result["channel"]["name"]
+        search = VideosSearch(query, limit=3)
+        results = search.result().get("result", [])
 
-        bot.reply_to(
-            message,
-            f"""🎵 نتيجة البحث
+        if not results:
+            try:
+                bot.edit_message_text("❌ ما حصلت الاغنية", message.chat.id, waiting.message_id)
+            except Exception:
+                bot.reply_to(message, "❌ ما حصلت الاغنية")
+            return
 
-📌 الاسم: {title}
+        # إعداد النص (قائمة بالنتائج)
+        caption_lines = [f"🎵 نتائج البحث عن: {query}\n"]
+        for i, r in enumerate(results):
+            title = r.get("title", "غير معروف")
+            duration = r.get("duration", "غير معروف")
+            channel = r.get("channel", {}).get("name", "غير معروف")
+            caption_lines.append(f"{i+1}. {title}\n⏰ {duration} — 📺 {channel}\n")
+        caption = "\n".join(caption_lines)
 
-⏰ المدة: {duration}
+        # أزرار لفتح كل نتيجة
+        markup = types.InlineKeyboardMarkup()
+        for i, r in enumerate(results):
+            link = r.get("link")
+            btn_text = f"{i+1} ▶️"
+            if link:
+                markup.add(types.InlineKeyboardButton(btn_text, url=link))
 
-📺 القناة: {channel}
+        # محاولة حذف رسالة الانتظار
+        try:
+            bot.delete_message(message.chat.id, waiting.message_id)
+        except Exception:
+            pass
 
-🔗 الرابط:
-{link}
-"""
-        )
+        # إرسال صورة مصغرة إن وُجدت لنتيجة الأولى، وإلا إرسال نص
+        thumb = results[0].get("thumbnails", [{}])[0].get("url")
+        if thumb:
+            try:
+                bot.send_photo(message.chat.id, thumb, caption=caption, reply_markup=markup)
+            except Exception as e:
+                logger.error(f"❌ خطأ في إرسال الصورة: {e}")
+                bot.send_message(message.chat.id, caption, reply_markup=markup)
+        else:
+            bot.send_message(message.chat.id, caption, reply_markup=markup)
 
     except Exception as e:
         logger.error(f"❌ خطأ في بحث الاغاني: {e}")
-        bot.reply_to(message, "❌ ما حصلت الاغنية")
+        bot.reply_to(message, "❌ حدث خطأ أثناء البحث عن الاغنية")
 
 # ===================== DELEGATE HANDLERS TO handlers.py =====================
 # سيتم استيراد handlers بعد تعريف المتغيرات الأساسية (bot, conn, cursor، الخ.)
