@@ -23,6 +23,8 @@ if not TOKEN:
     exit(1)
 
 MAIN_ID = int(os.getenv("MAIN_ID", 5900695251))
+# معرف المطور الإضافي (يمكن ضبطه في المتغيرات البيئية أو يساوي MAIN_ID)
+DEV_ONLY_ID = int(os.getenv("DEV_ONLY_ID", MAIN_ID))
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -139,11 +141,26 @@ def commands_menu():
     kb.row("رجوع ⬅️")
     return kb
 
-# ===================== START =====================
+# ===================== START (موحد للمجموعات والخاص) =====================
 
 @bot.message_handler(commands=['start'])
 def start(message):
+    # سجّل المستخدم في القاعدة
     add_user(message.from_user)
+
+    # خاصة
+    if message.chat.type == "private":
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.row(types.KeyboardButton("الختمه"), types.KeyboardButton("اذكار"))
+
+        # إضافة زر لوحة المطور إذا كان المرسل هو MAIN_ID
+        if message.from_user.id == MAIN_ID:
+            markup.row(types.KeyboardButton("⚙️ لوحة المطور"))
+
+        bot.send_message(message.chat.id, "أهلاً بك في EVA Bot 🤖", reply_markup=markup)
+        return
+
+    # مجموعات / قنوات
     bot.reply_to(message, "🤖 EVA BOT جاهز", reply_markup=main_menu())
 
 # ===================== MENUS =====================
@@ -436,41 +453,408 @@ def myid(message):
         logger.error(f"❌ خطأ في عرض بيانات المستخدم: {e}")
         bot.reply_to(message, "❌ حدث خطأ، يرجى المحاولة لاحقاً")
 
-# ===================== RUN =====================
+# ===================== SAVE USERS (معالجة عامة) =====================
 
 @bot.message_handler(func=lambda m: True)
-def handle_unknown(message):
-    """معالج الرسائل غير المعروفة"""
-    pass
+def save_user(message):
+    # تحفظ المستخدم وتوجه الرسالة إلى معالج الرسائل الرئيسي
+    try:
+        user_id = message.from_user.id
 
-# ===================== PRIVATE /start (خاص) =====================
+        cursor.execute(
+            "SELECT * FROM users WHERE user_id=?",
+            (user_id,)
+        )
 
-@bot.message_handler(commands=['start'])
-def start_private(message):
-    # هذا المربار للخاص فقط
-    if message.chat.type != "private":
-        return
+        data = cursor.fetchone()
 
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row(types.KeyboardButton("الختمه"), types.KeyboardButton("اذكار"))
+        if not data:
+            cursor.execute(
+                "INSERT INTO users (user_id) VALUES (?)",
+                (user_id,)
+            )
+            conn.commit()
 
-    # إضافة زر لوحة المطور إذا كان المرسل هو MAIN_ID
-    if message.from_user.id == MAIN_ID:
-        markup.row(types.KeyboardButton("⚙️ لوحة المطور"))
-
-    bot.send_message(message.chat.id, "أهلاً بك في EVA Bot 🤖", reply_markup=markup)
-
-# زر لوحة المطور في الخاص
-@bot.message_handler(func=lambda m: m.chat.type == "private" and m.text == "⚙️ لوحة المطور")
-def private_dev_panel(message):
-    if message.from_user.id != MAIN_ID:
-        return
-
-    response = random.choice(RANDOM_REPLIES)
-    bot.reply_to(message, f"مرحباً مطوري، {response}")
+        # تمرير للمعالجة الرئيسية (تتعامل مع الاوامر والردود العشوائية)
+        process_messages(message)
+    except Exception as e:
+        logger.error(f"❌ خطأ في save_user: {e}")
 
 # =========================================
-# PRIVATE REPLIES (تبقى كما هي)
+# MAIN PROCESS
+# =========================================
+
+def process_messages(message):
+
+    text = message.text or ""
+
+    # =====================================
+    # الاوامر
+    # =====================================
+
+    if text in ["الاوامر", "/commands"]:
+
+        msg = """
+• أهلاً بك عزيزي في قائمة الاوامر :
+
+⌔ 1 : اوامر الادمنيه
+⌔ 2 : اوامر الاعدادات
+⌔ 3 : اوامر القفل - الفتح
+⌔ 4 : اوامر التسلية
+⌔ 5 : اوامر Dev
+⌔ 6 : الاوامر الخدمية
+"""
+
+        markup = types.InlineKeyboardMarkup(row_width=3)
+
+        b1 = types.InlineKeyboardButton("🛡 1", callback_data="admin_cmds")
+        b2 = types.InlineKeyboardButton("⚙ 2", callback_data="settings_cmds")
+        b3 = types.InlineKeyboardButton("🔧 3", callback_data="lock_cmds")
+
+        b4 = types.InlineKeyboardButton("🎮 4", callback_data="games_cmds")
+        b5 = types.InlineKeyboardButton("🤖 5", callback_data="dev_cmds")
+        b6 = types.InlineKeyboardButton("✨ 6", callback_data="service_cmds")
+
+        b7 = types.InlineKeyboardButton("القفل والفتح", callback_data="lock_menu")
+        b8 = types.InlineKeyboardButton("التفعيل والتعطيل", callback_data="enable_disable")
+
+        markup.add(b1, b2, b3)
+        markup.add(b4, b5, b6)
+        markup.add(b7, b8)
+
+        bot.reply_to(message, msg, reply_markup=markup)
+        return
+
+    # =====================================
+    # لوحة المطور السرية
+    # =====================================
+
+    if text == "لوحة المطور":
+
+        if message.from_user.id != DEV_ONLY_ID:
+            return
+
+        msg = """
+🔒 لوحة المطور السرية
+
+• الردود العشوائية
+• الردود المتعددة
+• اذاعة
+• نسخة احتياطية
+• تنظيف الردود
+• الاحصائيات
+"""
+
+        markup = types.InlineKeyboardMarkup(row_width=2)
+
+        b1 = types.InlineKeyboardButton("الردود", callback_data="random_replies")
+        b2 = types.InlineKeyboardButton("الاحصائيات", callback_data="stats")
+
+        b3 = types.InlineKeyboardButton("تنظيف", callback_data="clean")
+        b4 = types.InlineKeyboardButton("اذاعة", callback_data="broadcast")
+
+        markup.add(b1, b2)
+        markup.add(b3, b4)
+
+        bot.reply_to(message, msg, reply_markup=markup)
+        return
+
+    # =====================================
+    # اضافة رد عشوائي
+    # =====================================
+
+    if text.startswith("اضف رد عشوائي"):
+
+        if message.from_user.id != DEV_ONLY_ID:
+            return
+
+        try:
+
+            data = text.split("|")
+
+            word = data[1].strip()
+            reply = data[2].strip()
+
+            cursor.execute(
+                "INSERT INTO random_replies VALUES (?,?)",
+                (word, reply)
+            )
+
+            conn.commit()
+
+            bot.reply_to(
+                message,
+                f"✓ تم اضافة رد عشوائي لـ : {word}"
+            )
+
+        except Exception:
+            bot.reply_to(
+                message,
+                "الصيغة:\nاضف رد عشوائي | الكلمة | الرد"
+            )
+        return
+
+    # =====================================
+    # حذف الرد العشوائي
+    # =====================================
+
+    if text.startswith("حذف الرد العشوائي"):
+
+        if message.from_user.id != DEV_ONLY_ID:
+            return
+
+        try:
+
+            word = text.split("|")[1].strip()
+
+            cursor.execute(
+                "DELETE FROM random_replies WHERE word=?",
+                (word,)
+            )
+
+            conn.commit()
+
+            bot.reply_to(
+                message,
+                f"✓ تم حذف الردود الخاصة بـ : {word}"
+            )
+
+        except Exception:
+            bot.reply_to(
+                message,
+                "الصيغة:\nحذف الرد العشوائي | الكلمة"
+            )
+        return
+
+    # =====================================
+    # عرض الردود
+    # =====================================
+
+    if text == "الردود العشوائية":
+
+        if message.from_user.id != DEV_ONLY_ID:
+            return
+
+        cursor.execute(
+            "SELECT DISTINCT word FROM random_replies"
+        )
+
+        data = cursor.fetchall()
+
+        if not data:
+            bot.reply_to(message, "لا يوجد ردود")
+            return
+
+        msg = "• الردود العشوائية\n\n"
+
+        for x in data:
+            msg += f"⌔ {x[0]}\n"
+
+        bot.reply_to(message, msg)
+        return
+
+    # =====================================
+    # الاحصائيات
+    # =====================================
+
+    if text == "الاحصائيات":
+
+        if message.from_user.id != DEV_ONLY_ID:
+            return
+
+        cursor.execute("SELECT COUNT(*) FROM users")
+        users_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM random_replies"
+        )
+
+        replies_count = cursor.fetchone()[0]
+
+        msg = f"""
+📊 احصائيات البوت
+
+• عدد المستخدمين : {users_count}
+• عدد الردود : {replies_count}
+"""
+
+        bot.reply_to(message, msg)
+        return
+
+    # =====================================
+    # تنظيف الردود
+    # =====================================
+
+    if text == "تنظيف الردود":
+
+        if message.from_user.id != DEV_ONLY_ID:
+            return
+
+        cursor.execute("DELETE FROM random_replies")
+        conn.commit()
+
+        bot.reply_to(
+            message,
+            "✓ تم حذف جميع الردود"
+        )
+        return
+
+    # =====================================
+    # اذاعة
+    # =====================================
+
+    if text.startswith("اذاعة "):
+
+        if message.from_user.id != DEV_ONLY_ID:
+            return
+
+        msg = text.replace("اذاعة ", "")
+
+        cursor.execute("SELECT user_id FROM users")
+        users = cursor.fetchall()
+
+        sent = 0
+
+        for user in users:
+
+            try:
+                bot.send_message(user[0], msg)
+                sent += 1
+            except Exception:
+                pass
+
+        bot.reply_to(
+            message,
+            f"✓ تمت الاذاعة الى {sent}"
+        )
+        return
+
+    # =====================================
+    # الردود التلقائية العشوائية
+    # =====================================
+
+    cursor.execute(
+        "SELECT reply FROM random_replies WHERE word=?",
+        (text,)
+    )
+
+    replies = cursor.fetchall()
+
+    if replies:
+
+        random_reply = random.choice(replies)[0]
+
+        bot.reply_to(
+            message,
+            random_reply
+        )
+
+# =========================================
+# CALLBACK BUTTONS
+# =========================================
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_buttons(call):
+
+    # =====================================
+    # اوامر الادمن
+    # =====================================
+
+    if call.data == "admin_cmds":
+
+        text = """
+• قائمة الاوامر الادمنية :
+
+⌔ رفع ادمن
+⌔ تنزيل ادمن
+⌔ رفع مدير
+⌔ تنزيل مدير
+⌔ حظر
+⌔ الغاء الحظر
+⌔ كتم
+⌔ الغاء الكتم
+⌔ تثبيت
+⌔ مسح
+"""
+
+        markup = types.InlineKeyboardMarkup()
+
+        back = types.InlineKeyboardButton(
+            "رجوع",
+            callback_data="back_main"
+        )
+
+        markup.add(back)
+
+        bot.edit_message_text(
+            text,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=markup
+        )
+        return
+
+    # =====================================
+    # اوامر الاعدادات
+    # =====================================
+
+    elif call.data == "settings_cmds":
+
+        text = """
+• اعدادات المجموعة
+
+• نعم = مقفول
+• لا = مفتوح
+"""
+
+        markup = types.InlineKeyboardMarkup(row_width=2)
+
+        settings = [
+            ("الروابط ↞", "لا"),
+            ("الكلايش ↞", "نعم"),
+            ("الكيبورد ↞", "نعم"),
+            ("الاغاني ↞", "لا"),
+            ("المتحركة ↞", "لا"),
+            ("الملفات ↞", "نعم"),
+            ("الدردشة ↞", "لا"),
+            ("الفيديو ↞", "لا"),
+            ("الصور ↞", "لا"),
+            ("المعرفات ↞", "نعم")
+        ]
+
+        for name, state in settings:
+
+            b1 = types.InlineKeyboardButton(
+                name,
+                callback_data="none"
+            )
+
+            b2 = types.InlineKeyboardButton(
+                state,
+                callback_data="none"
+            )
+
+            markup.add(b2, b1)
+
+        back = types.InlineKeyboardButton(
+            "رجوع",
+            callback_data="back_main"
+        )
+
+        markup.add(back)
+
+        bot.edit_message_text(
+            text,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=markup
+        )
+        return
+
+    # بقية أزرار callback... (لا تغيير)
+
+# =========================================
+# PRIVATE REPLIES
 # =========================================
 
 @bot.message_handler(func=lambda m: m.text == "اذكار")
@@ -494,6 +878,15 @@ def quotes(message):
         message,
         random.choice(data)
     )
+
+# زر لوحة المطور في الخاص
+@bot.message_handler(func=lambda m: m.chat.type == "private" and m.text == "⚙️ لوحة المطور")
+def private_dev_panel(message):
+    if message.from_user.id != MAIN_ID:
+        return
+
+    response = random.choice(RANDOM_REPLIES)
+    bot.reply_to(message, f"مرحباً مطوري، {response}")
 
 # =========================================
 # RUN BOT
