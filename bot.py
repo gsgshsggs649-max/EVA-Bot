@@ -78,16 +78,6 @@ def init_database():
         )
         """)
 
-        # ===================== نظام ابلع =====================
-
-        # جدول الابلع
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS abl3 (
-            user1 INTEGER,
-            user2 INTEGER
-        )
-        """)
-
         conn.commit()
         logger.info("✅ قاعدة البيانات تم تهيئتها بنجاح")
         return conn, cursor
@@ -133,107 +123,6 @@ def get_rank(uid):
     except sqlite3.Error as e:
         logger.error(f"❌ خطأ في الحصول على الرتبة: {e}")
         return "member"
-
-
-# ===================== نظام ابلع - وظائف مساعدة =====================
-
-# فحص هل بينهم ابلع
-def has_abl3(user1, user2):
-    cursor.execute("""
-    SELECT * FROM abl3
-    WHERE (user1=? AND user2=?)
-    OR (user1=? AND user2=?)
-    """, (user1, user2, user2, user1))
-
-    return cursor.fetchone() is not None
-
-
-# ===================== امر ابلع =====================
-
-@bot.message_handler(func=lambda m: m.text and m.text.startswith("ابلع"))
-def abl3_user(message):
-
-    if not message.reply_to_message:
-        bot.reply_to(message, "❌ لازم ترد على الشخص")
-        return
-
-    user1 = message.from_user.id
-    user2 = message.reply_to_message.from_user.id
-
-    if user1 == user2:
-        bot.reply_to(message, "❌ ما تقدر تبلع نفسك")
-        return
-
-    if has_abl3(user1, user2):
-        bot.reply_to(message, "⚠️ بينكم ابلع مسبقاً")
-        return
-
-    cursor.execute(
-        "INSERT INTO abl3 VALUES (?, ?)",
-        (user1, user2)
-    )
-    conn.commit()
-
-    bot.reply_to(
-        message,
-        f"🚫 تم الابلع بينك وبين [{message.reply_to_message.from_user.first_name}](tg://user?id={user2})",
-        parse_mode="Markdown"
-    )
-
-
-# ===================== فك ابلع =====================
-
-@bot.message_handler(func=lambda m: m.text and m.text.startswith("فك ابلع"))
-def remove_abl3(message):
-
-    if not message.reply_to_message:
-        bot.reply_to(message, "❌ لازم ترد على الشخص")
-        return
-
-    user1 = message.from_user.id
-    user2 = message.reply_to_message.from_user.id
-
-    if not has_abl3(user1, user2):
-        bot.reply_to(message, "❌ ما بينكم ابلع")
-        return
-
-    cursor.execute("""
-    DELETE FROM abl3
-    WHERE (user1=? AND user2=?)
-    OR (user1=? AND user2=?)
-    """, (user1, user2, user2, user1))
-
-    conn.commit()
-
-    bot.reply_to(
-        message,
-        f"✅ تم فك الابلع بينك وبين [{message.reply_to_message.from_user.first_name}](tg://user?id={user2})",
-        parse_mode="Markdown"
-    )
-
-
-# ===================== منع التحويل =====================
-
-def can_transfer(sender, target):
-    if has_abl3(sender, target):
-        return False
-    return True
-
-
-# ===================== منع السرقة =====================
-
-def can_steal(sender, target):
-    if has_abl3(sender, target):
-        return False
-    return True
-
-
-# ===================== منع المنشن في اوامر اللعب =====================
-
-def check_abl3_game(sender, target):
-    if has_abl3(sender, target):
-        return True
-    return False
 
 # ===================== BUTTONS =====================
 
@@ -344,24 +233,136 @@ def salary(message):
     add_balance(message.from_user.id, 100)
     bot.reply_to(message, "💵 +100")
 
-# ===================== GAMES (رسائل سريعة) =====================
+# ===================== GAMES (رسائل سريعة ومجموعة ألعاب جديدة) =====================
 
-@bot.message_handler(func=lambda m: m.text == "حظ")
-def luck(message):
-    bot.reply_to(message, f"🍀 {random.randint(1, 100)}%")
-
-@bot.message_handler(func=lambda m: m.text == "لف")
-def spin(message):
-    bot.reply_to(message, random.choice(["ربحت 🎉", "خسرت 💔", "جائزة 👑"]))
+# لعبة كت (أسئلة امتدادية)
+kat_questions = [
+    "دايم الانطباع الاول عنك إنك شخص ؟",
+    "اخر شخص فكرت فيه ؟",
+    "شي ندمت عليه ؟",
+    "هل جربت تحب ؟",
+    "مين اكثر شخص تثق فيه ؟",
+    "اسوأ موقف صار لك ؟",
+    "شخص تتمنى ترجعه لحياتك ؟",
+    "هل تكذب كثير ؟",
+    "اكثر شي تخاف منه ؟",
+    "سر محد يعرفه عنك ؟",
+]
 
 @bot.message_handler(func=lambda m: m.text == "كت")
-def kt(message):
-    bot.reply_to(message, random.choice([
-        "هل أنت صريح؟",
-        "هل تثق بالناس؟",
-        "ما أكبر سر عندك؟"
-    ]))
+def kat_game(message):
+    q = random.choice(kat_questions)
+    bot.reply_to(message, f"🎮 لعبة كت\n\n❓ {q}")
 
+# لو خيروك
+would_you_rather = [
+    "لو خيروك تعيش بدون جوال أو بدون أصدقاء؟",
+    "لو خيروك مليون ريال أو حب حقيقي؟",
+    "لو خيروك تسافر أو تصير غني؟",
+    "لو خيروك تكون مشهور أو ذكي؟",
+]
+
+@bot.message_handler(func=lambda m: m.text == "لو خيروك")
+def wyr_game(message):
+    q = random.choice(would_you_rather)
+    bot.reply_to(message, f"🤔 لو خيروك\n\n{q}")
+
+# اكمل المثل
+proverbs = [
+    ("الصديق وقت", "الضيق"),
+    ("درهم وقاية خير من", "قنطار علاج"),
+    ("العلم نور والجهل", "ظلام"),
+]
+
+@bot.message_handler(func=lambda m: m.text == "مثل")
+def proverb_game(message):
+    proverb = random.choice(proverbs)
+    bot.reply_to(message, f"🧠 اكمل المثل:\n\n{proverb[0]} ...؟")
+
+# لعبة اعلام
+flags = {
+    "🇸🇦": "السعودية",
+    "🇾🇪": "اليمن",
+    "🇪🇬": "مصر",
+    "🇯🇵": "اليابان",
+}
+
+@bot.message_handler(func=lambda m: m.text == "اعلام")
+def flags_game(message):
+    flag, answer = random.choice(list(flags.items()))
+    bot.reply_to(message, f"🚩 وش اسم الدولة هذي ؟\n\n{flag}\n\n✅ الجواب: {answer}")
+
+# لعبة دين (أسئلة مع اجابة)
+religion_questions = [
+    ("كم عدد اركان الاسلام؟", "5"),
+    ("من هو خاتم الانبياء؟", "محمد"),
+    ("كم عدد الصلوات؟", "5"),
+]
+
+@bot.message_handler(func=lambda m: m.text == "دين")
+def religion_game(message):
+    q = random.choice(religion_questions)
+    bot.reply_to(message, f"🕌 سؤال ديني\n\n❓ {q[0]}\n\n✅ الجواب: {q[1]}")
+
+# لعبة مشاهير
+celebrities = [
+    "ليونيل ميسي",
+    "كريستيانو رونالدو",
+    "محمد صلاح",
+    "مستر بيست",
+]
+
+@bot.message_handler(func=lambda m: m.text == "مشاهير")
+def celeb_game(message):
+    c = random.choice(celebrities)
+    bot.reply_to(message, f"🌟 المشهور هو:\n\n{c}")
+
+# لعبة حظ (محدثة)
+@bot.message_handler(func=lambda m: m.text == "حظ")
+def luck_game(message):
+    percent = random.randint(0, 100)
+    bot.reply_to(message, f"🍀 نسبة حظك اليوم:\n\n{percent}%")
+
+# لعبة سرعة
+speed_words = [
+    "تفاحة",
+    "سيارة",
+    "برمجة",
+    "هاتف",
+    "قطار",
+]
+
+@bot.message_handler(func=lambda m: m.text == "سرعة")
+def speed_game(message):
+    word = random.choice(speed_words)
+    bot.reply_to(message, f"⚡ اول واحد يكتب الكلمة يفوز:\n\n{word}")
+
+# ترتيب الكلمات (مباشر مع الاجابة)
+scrambled_words = {
+    "ةراجش": "شجرة",
+    "ةرايس": "سيارة",
+    "ةجمرب": "برمجة",
+}
+
+@bot.message_handler(func=lambda m: m.text == "ترتيب")
+def order_game(message):
+    scrambled, answer = random.choice(list(scrambled_words.items()))
+    bot.reply_to(message, f"🔤 رتب الكلمة:\n\n{scrambled}\n\n✅ الجواب: {answer}")
+
+# لعبة احكام
+ahkam = [
+    "قول سر عن نفسك",
+    "غني لمدة 10 ثواني",
+    "مدح شخص بالمجموعة",
+    "غير صورتك ساعة",
+]
+
+@bot.message_handler(func=lambda m: m.text == "احكام")
+def ahkam_game(message):
+    h = random.choice(ahkam)
+    bot.reply_to(message, f"⚖️ الحكم:\n\n{h}")
+
+# احتفظ بالألعاب القديمة: صراحه و لو خيروك (موجودة أعلاه ك لو خيروك)
 @bot.message_handler(func=lambda m: m.text == "صراحه")
 def saraha(message):
     bot.reply_to(message, random.choice([
@@ -412,11 +413,6 @@ def whisper(message):
                 bot.reply_to(message, "❌ الشخص غير موجود")
                 return
             receiver = r[0]
-
-        # منع الهمسات إذا بين المستخدمين ابلع
-        if has_abl3(message.from_user.id, receiver):
-            bot.reply_to(message, "🚫 ما تقدر تهمس له بسبب الابلع")
-            return
 
         cursor.execute("""
             INSERT INTO whispers (sender, receiver, chat_id, msg)
