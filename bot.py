@@ -78,6 +78,16 @@ def init_database():
         )
         """)
 
+        # ===================== نظام ابلع =====================
+
+        # جدول الابلع
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS abl3 (
+            user1 INTEGER,
+            user2 INTEGER
+        )
+        """)
+
         conn.commit()
         logger.info("✅ قاعدة البيانات تم تهيئتها بنجاح")
         return conn, cursor
@@ -123,6 +133,107 @@ def get_rank(uid):
     except sqlite3.Error as e:
         logger.error(f"❌ خطأ في الحصول على الرتبة: {e}")
         return "member"
+
+
+# ===================== نظام ابلع - وظائف مساعدة =====================
+
+# فحص هل بينهم ابلع
+def has_abl3(user1, user2):
+    cursor.execute("""
+    SELECT * FROM abl3
+    WHERE (user1=? AND user2=?)
+    OR (user1=? AND user2=?)
+    """, (user1, user2, user2, user1))
+
+    return cursor.fetchone() is not None
+
+
+# ===================== امر ابلع =====================
+
+@bot.message_handler(func=lambda m: m.text and m.text.startswith("ابلع"))
+def abl3_user(message):
+
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ لازم ترد على الشخص")
+        return
+
+    user1 = message.from_user.id
+    user2 = message.reply_to_message.from_user.id
+
+    if user1 == user2:
+        bot.reply_to(message, "❌ ما تقدر تبلع نفسك")
+        return
+
+    if has_abl3(user1, user2):
+        bot.reply_to(message, "⚠️ بينكم ابلع مسبقاً")
+        return
+
+    cursor.execute(
+        "INSERT INTO abl3 VALUES (?, ?)",
+        (user1, user2)
+    )
+    conn.commit()
+
+    bot.reply_to(
+        message,
+        f"🚫 تم الابلع بينك وبين [{message.reply_to_message.from_user.first_name}](tg://user?id={user2})",
+        parse_mode="Markdown"
+    )
+
+
+# ===================== فك ابلع =====================
+
+@bot.message_handler(func=lambda m: m.text and m.text.startswith("فك ابلع"))
+def remove_abl3(message):
+
+    if not message.reply_to_message:
+        bot.reply_to(message, "❌ لازم ترد على الشخص")
+        return
+
+    user1 = message.from_user.id
+    user2 = message.reply_to_message.from_user.id
+
+    if not has_abl3(user1, user2):
+        bot.reply_to(message, "❌ ما بينكم ابلع")
+        return
+
+    cursor.execute("""
+    DELETE FROM abl3
+    WHERE (user1=? AND user2=?)
+    OR (user1=? AND user2=?)
+    """, (user1, user2, user2, user1))
+
+    conn.commit()
+
+    bot.reply_to(
+        message,
+        f"✅ تم فك الابلع بينك وبين [{message.reply_to_message.from_user.first_name}](tg://user?id={user2})",
+        parse_mode="Markdown"
+    )
+
+
+# ===================== منع التحويل =====================
+
+def can_transfer(sender, target):
+    if has_abl3(sender, target):
+        return False
+    return True
+
+
+# ===================== منع السرقة =====================
+
+def can_steal(sender, target):
+    if has_abl3(sender, target):
+        return False
+    return True
+
+
+# ===================== منع المنشن في اوامر اللعب =====================
+
+def check_abl3_game(sender, target):
+    if has_abl3(sender, target):
+        return True
+    return False
 
 # ===================== BUTTONS =====================
 
@@ -233,87 +344,6 @@ def salary(message):
     add_balance(message.from_user.id, 100)
     bot.reply_to(message, "💵 +100")
 
-# -- تحويل عبر الرد أو ذكر المستخدم أو باستخدام الفواصل |
-@bot.message_handler(func=lambda m: m.text and m.text.startswith("تحويل"))
-def transfer(message):
-    try:
-        sender = message.from_user
-        add_user(sender)
-
-        # حالة: الرد على رسالة المستخدم، الصيغة: "تحويل 100" كرد
-        if message.reply_to_message:
-            try:
-                parts = message.text.split()
-                if len(parts) < 2:
-                    bot.reply_to(message, "❌ اكتب: تحويل <المبلغ> كرد على رسالة المستخدم")
-                    return
-                amount = int(parts[1])
-            except Exception:
-                bot.reply_to(message, "❌ المبلغ يجب أن يكون رقماً صحيحاً")
-                return
-            receiver = message.reply_to_message.from_user
-            add_user(receiver)
-
-        else:
-            # حالة: تحويل | @user | المبلغ أو تحويل @user المبلغ
-            if "|" in message.text:
-                parts = message.text.split("|")
-                if len(parts) < 3:
-                    bot.reply_to(message, "❌ الصيغة: تحويل | @user | المبلغ")
-                    return
-                username = parts[1].strip().replace("@", "")
-                try:
-                    amount = int(parts[2].strip())
-                except Exception:
-                    bot.reply_to(message, "❌ المبلغ يجب أن يكون رقماً صحيحاً")
-                    return
-            else:
-                parts = message.text.split()
-                if len(parts) < 3:
-                    bot.reply_to(message, "❌ الصيغة: تحويل @user المبلغ أو رد على رسالة المستخدم بكتابة: تحويل المبلغ")
-                    return
-                username = parts[1].strip().replace("@", "")
-                try:
-                    amount = int(parts[2].strip())
-                except Exception:
-                    bot.reply_to(message, "❌ المبلغ يجب أن يكون رقماً صحيحاً")
-                    return
-
-            # البحث عن المستخدم في قاعدة البيانات
-            cursor.execute("SELECT user_id FROM users WHERE username=?", (username,))
-            r = cursor.fetchone()
-            if not r:
-                bot.reply_to(message, "❌ لم أجد المستخدم في السجل. استخدم الرد على رسالة المستخدم أو تأكد أنه تفاعل مع البوت من قبل.")
-                return
-            receiver_id = r[0]
-            # إحضار بيانات المستخدم الباقية إن أمكن
-            receiver = types.User(id=receiver_id, first_name=username, username=username) if False else None
-
-            # إذا لم نحصل على كائن receiver (غير متوفر)، سنستخدم receiver_id لاحقًا
-
-        # تحقق من صحة المبلغ
-        if amount <= 0:
-            bot.reply_to(message, "❌ المبلغ يجب أن يكون أكبر من صفر")
-            return
-
-        sender_balance = get_balance(sender.id)
-        if sender_balance < amount:
-            bot.reply_to(message, "❌ رصيدك غير كافٍ للتحويل")
-            return
-
-        # تنفيذ التحويل
-        add_balance(sender.id, -amount)
-        if message.reply_to_message:
-            add_balance(receiver.id, amount)
-            bot.reply_to(message, f"✅ تم تحويل {amount} إلى {receiver.first_name}\nرصيدك الآن: {get_balance(sender.id)}")
-        else:
-            add_balance(receiver_id, amount)
-            bot.reply_to(message, f"✅ تم تحويل {amount} إلى @{username}\nرصيدك الآن: {get_balance(sender.id)}")
-
-    except Exception as e:
-        logger.error(f"❌ خطأ في عملية التحويل: {e}")
-        bot.reply_to(message, "❌ حدث خطأ أثناء تنفيذ التحويل. حاول لاحقًا.")
-
 # ===================== GAMES (رسائل سريعة) =====================
 
 @bot.message_handler(func=lambda m: m.text == "حظ")
@@ -382,6 +412,11 @@ def whisper(message):
                 bot.reply_to(message, "❌ الشخص غير موجود")
                 return
             receiver = r[0]
+
+        # منع الهمسات إذا بين المستخدمين ابلع
+        if has_abl3(message.from_user.id, receiver):
+            bot.reply_to(message, "🚫 ما تقدر تهمس له بسبب الابلع")
+            return
 
         cursor.execute("""
             INSERT INTO whispers (sender, receiver, chat_id, msg)
@@ -516,7 +551,7 @@ def list_replies(message):
         bot.reply_to(message, "❌ حدث خطأ، يرجى المحاولة لاحقاً")
 
 # =========================================
-# CALLBACK BUTTONS (م��حد - يشمل أوامر الألعاب والأوامر والإعدادات)
+# CALLBACK BUTTONS (موحد - يشمل أوامر الألعاب والأوامر والإعدادات)
 # =========================================
 
 @bot.callback_query_handler(func=lambda call: True)
