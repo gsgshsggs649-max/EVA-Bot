@@ -1,2 +1,2 @@
-youtubesearchpython
+youtube-search-python
 pyTelegramBotAPI
